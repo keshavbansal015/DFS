@@ -7,8 +7,8 @@ import (
 	"github.com/keshavbansal015/DFS/p2p"
 )
 
-func OnPeer(p2p.Peer) error {
-	fmt.Println("doing some logic with the peer outside of TCTTransport")
+func OnPeer(peer p2p.Peer) error {
+	peer.Close()
 	return nil
 }
 
