@@ -30,7 +30,6 @@ func CASPathTransformFunc(key string) PathKey {
 		Pathname: strings.Join(paths, "/"),
 		Filename: hashStr,
 	}
-	// return strings.Join(paths, "/")
 }
 
 type PathTransformFunc func(string) PathKey
@@ -96,7 +95,9 @@ func (s *Store) Read(key string) (io.Reader, error) {
 
 func (s *Store) Has(key string) bool {
 	pathKey := s.PathTransformFunc(key)
-	_, err := os.Stat(pathKey.FullPath())
+
+	fullPathWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.FullPath())
+	_, err := os.Stat(fullPathWithRoot)
 	if err == os.ErrNotExist {
 		return false
 	}
@@ -111,12 +112,14 @@ func (s *Store) Delete(key string) error {
 		log.Printf("deleted [%s] from disk", pathKey.Filename)
 	}()
 
-	return os.RemoveAll(pathKey.FirstPathName())
+	firstPathNameWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.FirstPathName())
+	return os.RemoveAll(firstPathNameWithRoot)
 }
 
 func (s *Store) readStream(key string) (io.ReadCloser, error) {
 	pathKey := s.PathTransformFunc(key)
-	return os.Open(pathKey.FullPath())
+	fullPathKeyWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.FullPath())
+	return os.Open(fullPathKeyWithRoot)
 }
 
 func (s *Store) writeStream(key string, r io.Reader) error {
