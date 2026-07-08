@@ -1,9 +1,8 @@
-package main
+package store
 
 import (
 	"bytes"
 	"io"
-
 	"testing"
 )
 
@@ -18,7 +17,6 @@ func TestPathTransformFunc(t *testing.T) {
 	if pathkey.Filename != expectedOriginalKey {
 		t.Errorf("have %s want %s", pathkey.Filename, expectedOriginalKey)
 	}
-
 }
 
 func TestStoreDeleteKey(t *testing.T) {
@@ -29,11 +27,11 @@ func TestStoreDeleteKey(t *testing.T) {
 	key := "goodpicture"
 	data := []byte("Some jpg bytes")
 
-	if err := s.writeStream(key, bytes.NewReader(data)); err != nil {
+	if _, err := s.writeStream("", key, bytes.NewReader(data)); err != nil {
 		t.Error(err)
 	}
 
-	if err := s.Delete(key); err != nil {
+	if err := s.Delete("", key); err != nil {
 		t.Error(err)
 	}
 }
@@ -47,14 +45,14 @@ func TestStore(t *testing.T) {
 	key := "goodpicture"
 	data := []byte("Some jpg bytes")
 
-	if err := s.writeStream(key, bytes.NewReader(data)); err != nil {
+	if _, err := s.writeStream("", key, bytes.NewReader(data)); err != nil {
 		t.Error(err)
 	}
 
-	if ok := s.Has(key); !ok {
+	if ok := s.Has("", key); !ok {
 		t.Errorf("expected to have key %s", key)
 	}
-	r, err := s.Read(key)
+	_, r, err := s.Read("", key)
 	if err != nil {
 		t.Error(err)
 	}
@@ -64,5 +62,4 @@ func TestStore(t *testing.T) {
 	if string(b) != string(data) {
 		t.Errorf("want %s have %s", data, b)
 	}
-	// s.Delete(key)
 }

@@ -5,16 +5,19 @@ import (
 	"io"
 )
 
+// Decoder interface for decoding binary data.
 type Decoder interface {
 	Decode(io.Reader, *RPC) error
 }
 
-type GOBDecoder struct{}
+type GOBDecoder struct{} // implements Decoder using gob serialization.
 
 func (dec GOBDecoder) Decode(r io.Reader, msg *RPC) error {
 	return gob.NewDecoder(r).Decode(msg)
 }
 
+// implements a decoder that supports peek buffering for streams and
+// reading raw unformatted message chunks.
 type DefaultDecoder struct{}
 
 func (dec DefaultDecoder) Decode(r io.Reader, msg *RPC) error {
@@ -41,4 +44,22 @@ func (dec DefaultDecoder) Decode(r io.Reader, msg *RPC) error {
 	msg.Payload = buf[:n]
 
 	return nil
+}
+
+type Encoder interface {
+	Encode(io.Writer, *RPC) error
+}
+
+type DefaultEncoder struct{}
+
+// PENDING: implementation.
+func (enc DefaultEncoder) Encode(w io.Writer, msg *RPC) error {
+	return nil
+}
+
+// implements gob encoding.
+type GOBEncoder struct{}
+
+func (enc GOBEncoder) Encode(w io.Writer, msg *RPC) error {
+	return gob.NewEncoder(w).Encode(msg)
 }

@@ -10,46 +10,62 @@ import (
 	"sync"
 	"time"
 
+	"github.com/keshavbansal015/DFS/crypto"
 	"github.com/keshavbansal015/DFS/p2p"
+	"github.com/keshavbansal015/DFS/store"
 )
 
+// FileServerOpts contains the configuration options for a FileServer.
 type FileServerOpts struct {
-	ID                string
-	EncKey            []byte
-	StorageRoot       string
-	PathTransformFunc PathTransformFunc
-	Transport         p2p.Transport
-	BootstrapNodes    []string
+	// ID is the unique identifier for the file server instance.
+	ID string
+	// EncKey is the symmetric encryption key used to encrypt and decrypt files on disk and over the wire.
+	EncKey []byte
+	// StorageRoot is the path to the directory where stored files are persisted.
+	StorageRoot string
+	// PathTransformFunc is a function that maps a string key to a structured path key for on-disk organization.
+	PathTransformFunc store.PathTransformFunc
+	// Transport is the network transport interface used to communicate with other nodes.
+	Transport p2p.Transport
+	// BootstrapNodes is a list of network addresses of bootstrap nodes to connect to during startup.
+	BootstrapNodes []string
 }
 
+// FileServer represents a distributed file server node in the peer-to-peer network.
 type FileServer struct {
 	FileServerOpts
 
 	peerLock sync.Mutex
-	peers    map[string]p2p.Peer
+	// peers maps peer network addresses to their active Peer interface instances.
+	peers map[string]p2p.Peer
 
-	store  *Store
+	// store is the local content-addressable storage layer.
+	store *store.Store
+	// quitch is a channel used to signal the server to stop execution.
 	quitch chan struct{}
 }
 
+// NewFileServer instantiates and initializes a new FileServer with the provided options.
+// If storage parameters are not fully specified, it applies defaults.
 func NewFileServer(opts FileServerOpts) *FileServer {
-	storeOpts := StoreOpts{
+	storeOpts := store.StoreOpts{
 		Root:              opts.StorageRoot,
-		PathTransformFunc: opts.PathTransportFunc,
+		PathTransformFunc: opts.PathTransformFunc,
 	}
 
 	if len(opts.ID) == 0 {
-		opts.ID = generateID()
+		opts.ID = crypto.GenerateID()
 	}
 
 	return &FileServer{
 		FileServerOpts: opts,
-		store:          NewStore(storeOpts),
+		store:          store.NewStore(storeOpts),
 		quitch:         make(chan struct{}),
 		peers:          make(map[string]p2p.Peer),
 	}
 }
 
+// broadcast encodes and sends the given message to all connected peers in the server's routing table.
 func (s *FileServer) broadcast(msg *Message) error {
 	buf := new(bytes.Buffer)
 	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
@@ -66,24 +82,36 @@ func (s *FileServer) broadcast(msg *Message) error {
 	return nil
 }
 
+// Message is a generic container wrapper for payloads transmitted between nodes.
 type Message struct {
+	// Payload represents the actual content of the message, such as MessageStoreFile or MessageGetFile.
 	Payload any
 }
 
+// MessageStoreFile is a payload containing metadata indicating that a file is being stored in the network.
 type MessageStoreFile struct {
-	ID   string
-	Key  string
+	// ID of the node initiating the store action.
+	ID string
+	// Key is the hashed identifier of the stored file.
+	Key string
+	// Size is the length of the file in bytes (including cryptographic padding if applicable).
 	Size int64
 }
 
+// MessageGetFile is a payload requesting a specific file by its key and the requestor's ID.
 type MessageGetFile struct {
-	ID  string
+	// ID of the requesting node.
+	ID string
+	// Key is the hashed identifier of the requested file.
 	Key string
 }
 
+// Get retrieves a file by its key. It first checks the local storage. If not present locally,
+// it broadcasts a MessageGetFile query to the network, waits for a response from a peer,
+// decrypts and writes the received stream to the local store, and returns a reader for the file.
 func (s *FileServer) Get(key string) (io.Reader, error) {
 	if s.store.Has(s.ID, key) {
-		fmt.Printf("[%s server file (%s) from local disk\n]", s.Transport.Addr(), key)
+		fmt.Printf("[%s] server file (%s) from local disk\n", s.Transport.Addr(), key)
 		_, r, err := s.store.Read(s.ID, key)
 		return r, err
 	}
@@ -92,28 +120,24 @@ func (s *FileServer) Get(key string) (io.Reader, error) {
 	msg := Message{
 		Payload: MessageGetFile{
 			ID:  s.ID,
-			Key: hashKey(key),
+			Key: crypto.HashKey(key),
 		},
 	}
 
 	if err := s.broadcast(&msg); err != nil {
 		return nil, err
 	}
-
 	time.Sleep(time.Millisecond * 500)
 
 	for _, peer := range s.peers {
 		var fileSize int64
-
 		binary.Read(peer, binary.LittleEndian, &fileSize)
-
 		n, err := s.store.WriteDecrypt(s.EncKey, s.ID, key, io.LimitReader(peer, fileSize))
 		if err != nil {
 			return nil, err
 		}
 
 		fmt.Printf("[%s] received (%d) bytes over the network from (%s)", s.Transport.Addr(), n, peer.RemoteAddr())
-
 		peer.CloseStream()
 	}
 
@@ -121,6 +145,8 @@ func (s *FileServer) Get(key string) (io.Reader, error) {
 	return r, err
 }
 
+// Store encrypts and writes the data from the reader to local storage, and then broadcasts
+// a MessageStoreFile notification to all peers so they can fetch and replicate the file.
 func (s *FileServer) Store(key string, r io.Reader) error {
 	var (
 		fileBuffer = new(bytes.Buffer)
@@ -135,7 +161,7 @@ func (s *FileServer) Store(key string, r io.Reader) error {
 	msg := Message{
 		Payload: MessageStoreFile{
 			ID:   s.ID,
-			Key:  hashKey(key),
+			Key:  crypto.HashKey(key),
 			Size: size + 16,
 		},
 	}
@@ -154,7 +180,7 @@ func (s *FileServer) Store(key string, r io.Reader) error {
 
 	mw := io.MultiWriter(peers...)
 	mw.Write([]byte{p2p.IncomingStream})
-	n, err := copyEncrypt(s.EncKey, fileBuffer, mw)
+	n, err := crypto.CopyEncrypt(s.EncKey, fileBuffer, mw)
 	if err != nil {
 		return err
 	}
@@ -164,10 +190,13 @@ func (s *FileServer) Store(key string, r io.Reader) error {
 	return nil
 }
 
+// Stop signals the FileServer to shut down by closing its quit channel.
 func (s *FileServer) Stop() {
 	close(s.quitch)
 }
 
+// OnPeer is the callback registered with the network transport that tracks newly connected
+// and handshaked peers by saving them in the routing map.
 func (s *FileServer) OnPeer(p p2p.Peer) error {
 	s.peerLock.Lock()
 	defer s.peerLock.Unlock()
@@ -179,6 +208,8 @@ func (s *FileServer) OnPeer(p p2p.Peer) error {
 	return nil
 }
 
+// loop runs the background message loop, reading incoming RPC objects from the transport
+// and routing them to the appropriate message handlers.
 func (s *FileServer) loop() {
 	defer func() {
 		log.Println("file server stopped due to error or user quit action")
@@ -202,6 +233,7 @@ func (s *FileServer) loop() {
 	}
 }
 
+// handleMessage inspects the payload type and routes it to the corresponding message handler.
 func (s *FileServer) handleMessage(from string, msg *Message) error {
 	switch v := msg.Payload.(type) {
 	case MessageStoreFile:
@@ -213,6 +245,7 @@ func (s *FileServer) handleMessage(from string, msg *Message) error {
 	return nil
 }
 
+// handleMessageGetFile processes a request to serve a file over the network to a remote peer.
 func (s *FileServer) handleMessageGetFile(from string, msg MessageGetFile) error {
 	if !s.store.Has(msg.ID, msg.Key) {
 		return fmt.Errorf("[%s] need to server file (%s) but it does not exist on disk", s.Transport.Addr(), msg.Key)
@@ -247,6 +280,7 @@ func (s *FileServer) handleMessageGetFile(from string, msg MessageGetFile) error
 	return nil
 }
 
+// handleMessageStoreFile reads a file stream from a remote peer, writing and decrypting it to local storage.
 func (s *FileServer) handleMessageStoreFile(from string, msg MessageStoreFile) error {
 	peer, ok := s.peers[from]
 	if !ok {
@@ -264,6 +298,7 @@ func (s *FileServer) handleMessageStoreFile(from string, msg MessageStoreFile) e
 	return nil
 }
 
+// bootstrapNetwork attempts to connect to all configured bootstrap nodes asynchronously.
 func (s *FileServer) bootstrapNetwork() error {
 	for _, addr := range s.BootstrapNodes {
 		if len(addr) == 0 {
@@ -280,6 +315,7 @@ func (s *FileServer) bootstrapNetwork() error {
 	return nil
 }
 
+// Start boots up the transport layer, kicks off network bootstrapping, and starts the message loop.
 func (s *FileServer) Start() error {
 	fmt.Printf("[%s] starting fileserver ...\n", s.Transport.Addr())
 
