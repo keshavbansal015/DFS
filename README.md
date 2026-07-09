@@ -147,51 +147,13 @@ To avoid mixing RPC structure parsing (using Go's `gob` decoder) and raw binary 
 
 While functional as a proof of concept, several severe architectural limitations must be addressed before this system can be deployed in production:
 
-### 1. The Peer ID Subdirectory Query Defect (Critical)
-> [!CAUTION]
-> **Severe Retrieval Bug**: 
-> Currently, the physical storage layer organizes files inside folders prefixed with the node ID of the peer that uploaded or holds the file:  
-> `storage_root / {NodeID} / {Hash_Path}`
-> 
-> * **Store**: Node `A` uploads a file. Peers save it locally under subdirectory `A`.
-> * **Get**: Node `B` wants the file. It sends a `MessageGetFile` with `msg.ID = B`.
-> * **Failure**: Peers look for the file inside subdirectory `B`, failing to locate it because it is stored under subdirectory `A`. 
-> 
-> **Solution**: Remove the node ID prefix from the physical file paths in `store.go`, allowing files to be stored purely by their content address (`storage_root / {Hash_Path}`) regardless of who uploaded or requested them.
 
-### 2. Lack of Key Exchange Protocol
+### 1. Lack of Key Exchange Protocol
 > [!WARNING]
 > Nodes generate random 32-byte symmetric encryption keys independently on startup (`newEncryptionKey()`). In order for peers to successfully decrypt files pulled from other nodes, all nodes must share or negotiate the exact same symmetric key. A key exchange protocol (such as Diffie-Hellman) or secure configuration management is needed.
 
-### 3. Vulnerable TCP Decoder Buffer
-> [!WARNING]
-> The `DefaultDecoder.Decode` function uses a fixed 1028-byte buffer to read message payloads from the socket:
-> ```go
-> buf := make([]byte, 1028)
-> n, err := r.Read(buf)
-> ```
-> If an RPC message metadata payload exceeds 1028 bytes (e.g., extremely long file keys or large struct headers), it will be truncated, causing Gob deserialization errors and crashing the peer's connection handler. 
-> 
-> **Solution**: Implement length-prefixed packet framing (e.g., write the payload length as a 4-byte big-endian integer before writing the payload).
-
-### 4. Naive Broadcast Engine
-> [!NOTE]
-> The server broadcasts messages by iterating through all active peers synchronously. This approach does not scale in a wide-area network and creates head-of-line blocking. The system needs a DHT (such as Kademlia) or a gossip-based communication protocol (like Epidemic Broadcast) to route messages efficiently.
-
-### 5. Missing Network Handshake Verification
+### 2. Missing Network Handshake Verification
 > [!NOTE]
 > The `HandshakeFunc` defaults to `NOPHandshakeFunc`. In a secure distributed file system, nodes must execute handshakes to exchange protocol versions, discover other active peer lists, and authenticate via cryptographic tokens.
 
 ---
-
-## Architectural Critique & Opinion
-
-This codebase is an **excellent, clean, and highly educational demonstration of low-level networking in Go**. Writing raw TCP sockets, handling custom framing/streaming states via `sync.WaitGroup`, and implementing cryptographic pipelines on input streams showcase a strong grasp of systems programming.
-
-### What is done well:
-* **Stream Pipeline Efficiency**: The use of `io.TeeReader`, `io.MultiWriter`, and `io.LimitReader` means files are streamed block-by-block without ever reading the entire file into memory. This ensures the system can handle multi-gigabyte files with minimal memory overhead.
-* **Separation of Concerns**: The abstraction between the physical storage manager (`store.go`), the crypto engine (`crypto.go`), the transport mechanics (`p2p/tcp_transport.go`), and the coordinator (`server.go`) is highly modular and easy to extend.
-
-### Areas for Improvement:
-* **Error Resilience**: The background connection loops drop connections instantly upon any read/decode error. For a distributed system, a retry strategy, heartbeats (pings/pongs), and connection pooling are required.
-* **Decoupling Virtual Nodes**: The codebase uses the node ID to partition files on the local filesystem, primarily because the test harness in `main.go` runs all nodes in the same local directory. Running separate node processes with distinct configurations (environment variables or config files) is a much cleaner way to separate disk directories and eliminates the need for nesting directories by Node ID.

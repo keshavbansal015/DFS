@@ -252,23 +252,18 @@ func (s *FileServer) handleMessageGetFile(from string, msg MessageGetFile) error
 	}
 
 	fmt.Printf("[%s] serving file (%s) over the network\n", s.Transport.Addr(), msg.Key)
-
 	fileSize, r, err := s.store.Read(msg.ID, msg.Key)
 	if err != nil {
 		return err
 	}
-
 	if rc, ok := r.(io.ReadCloser); ok {
 		fmt.Println("closing readCloser")
 		defer rc.Close()
 	}
-
 	peer, ok := s.peers[from]
-
 	if !ok {
 		return fmt.Errorf("peer %s not in map", from)
 	}
-
 	peer.Send([]byte{p2p.IncomingStream})
 	binary.Write(peer, binary.LittleEndian, fileSize)
 	n, err := io.Copy(peer, r)
@@ -286,14 +281,11 @@ func (s *FileServer) handleMessageStoreFile(from string, msg MessageStoreFile) e
 	if !ok {
 		return fmt.Errorf("peer (%s) could not be found in the peer list", from)
 	}
-
 	n, err := s.store.Write(msg.ID, msg.Key, io.LimitReader(peer, msg.Size))
 	if err != nil {
 		return err
 	}
-
 	fmt.Printf("[%s] written %d bytes to disk\n", s.Transport.Addr(), n)
-
 	peer.CloseStream()
 	return nil
 }
