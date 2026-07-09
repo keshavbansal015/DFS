@@ -157,3 +157,5 @@ While functional as a proof of concept, several severe architectural limitations
 > The `HandshakeFunc` defaults to `NOPHandshakeFunc`. In a secure distributed file system, nodes must execute handshakes to exchange protocol versions, discover other active peer lists, and authenticate via cryptographic tokens.
 
 ---
+
+- This project is based on the course by AnthonyGG.
