@@ -126,14 +126,6 @@ To avoid mixing RPC structure parsing (using Go's `gob` decoder) and raw binary 
   ```bash
   make run
   ```
-  This runs the test bootstrap sequence defined in `main.go`. It spins up three virtual nodes on ports `:3000`, `:7000`, and `:5000`. It performs 20 store-delete-retrieve iterations to show local deletion and network recovery.
-
-  > [!IMPORTANT]
-  > **macOS Port Conflict Warning**: 
-  > By default, macOS uses ports `:5000` and `:7000` for **AirPlay Receiver**. If AirPlay Receiver is active, running the simulation will fail with `bind: address already in use`. 
-  > To fix this:
-  > 1. Go to **System Settings > General > AirDrop & Handoff** and turn off **AirPlay Receiver**.
-  > 2. Alternatively, edit the port parameters in [main.go](file:///Users/keshavbansal/keshav/DFS/main.go#L44-L46) to use alternative ports (e.g. `:3000`, `:7001`, `:5001`).
 
 * **Run Tests**:
   ```bash
@@ -143,17 +135,15 @@ To avoid mixing RPC structure parsing (using Go's `gob` decoder) and raw binary 
 
 ---
 
-## Critical Gaps & Incomplete Features
+## Gaps & Incomplete Features
 
 While functional as a proof of concept, several severe architectural limitations must be addressed before this system can be deployed in production:
 
 
 ### 1. Lack of Key Exchange Protocol
-> [!WARNING]
 > Nodes generate random 32-byte symmetric encryption keys independently on startup (`newEncryptionKey()`). In order for peers to successfully decrypt files pulled from other nodes, all nodes must share or negotiate the exact same symmetric key. A key exchange protocol (such as Diffie-Hellman) or secure configuration management is needed.
 
 ### 2. Missing Network Handshake Verification
-> [!NOTE]
 > The `HandshakeFunc` defaults to `NOPHandshakeFunc`. In a secure distributed file system, nodes must execute handshakes to exchange protocol versions, discover other active peer lists, and authenticate via cryptographic tokens.
 
 ---
